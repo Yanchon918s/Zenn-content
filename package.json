@@ -4,7 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "validate:content": "node scripts/validate-public-content.mjs",
+    "validate": "npm run validate:content && zenn list:articles",
+    "test": "npm run validate"
   },
   "repository": {
     "type": "git",

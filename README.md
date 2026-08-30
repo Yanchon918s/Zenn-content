@@ -21,3 +21,12 @@ npx zenn preview
 ```
 
 このリポジトリの`main`ブランチはZennのデプロイ対象です。マージされた変更はZennへ同期されます。
+
+## CIとPrivate原本への反映
+
+- すべてのPull Requestで、変更範囲、Front Matter、slug、参照画像、Zenn CLIの検証を行います。
+- 読者のPull Requestを`main`へマージすると、Zennへデプロイされます。
+- Private執筆リポジトリはPublicの`main`を定期確認し、差分があればPrivate側へ同期Pull Requestを作成します。
+- Private側で公開対象になった記事は、`sync/private-main`ブランチからこのリポジトリへ公開Pull Requestとして届きます。
+
+相互同期は`main`へ直接書き込まず、必ずPull Requestで内容を確認してからマージします。

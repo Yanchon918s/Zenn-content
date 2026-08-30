@@ -1,0 +1,93 @@
+name: 公開記事CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - sync/private-main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: 公開記事を検証
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: リポジトリを取得
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: PRで実行可能な変更範囲を先に検証
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          ALLOW_ARTICLE_SET_CHANGES: ${{ github.head_ref == 'sync/private-main' && github.event.pull_request.head.repo.full_name == github.repository }}
+        run: |
+          node <<'NODE'
+          const { execFileSync } = require('node:child_process');
+          const output = execFileSync(
+            'git',
+            ['diff', '--no-renames', '--name-status', '-z', process.env.BASE_SHA, 'HEAD'],
+            { encoding: 'utf8' },
+          );
+          const parts = output.split('\0').filter(Boolean);
+          let changedArticleCount = 0;
+          for (let index = 0; index < parts.length; index += 2) {
+            const status = parts[index];
+            const changedPath = (parts[index + 1] ?? '').replaceAll('\\', '/');
+            const isArticle = /^articles\/[^/]+\.md$/.test(changedPath);
+            const isImage = /^images\/.+/.test(changedPath);
+            if (!isArticle && !isImage) {
+              throw new Error(`Pull Requestで変更できないパスです: ${changedPath}`);
+            }
+            if (isArticle) {
+              changedArticleCount += 1;
+              if (process.env.ALLOW_ARTICLE_SET_CHANGES !== 'true' && /^[AD]/.test(status)) {
+                throw new Error(`読者PRでは記事の追加・削除はできません: ${status} ${changedPath}`);
+              }
+            }
+          }
+          if (changedArticleCount === 0) {
+            throw new Error('少なくとも1つの既存記事を変更してください。');
+          }
+          NODE
+
+      - name: Node.jsを準備
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: 依存関係を復元
+        run: npm ci
+
+      - name: 読者PRの変更範囲を検証
+        if: github.event_name == 'pull_request' && !(github.head_ref == 'sync/private-main' && github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: node scripts/validate-public-content.mjs --base "$BASE_SHA"
+
+      - name: Privateからの公開PRを検証
+        if: github.event_name == 'pull_request' && github.head_ref == 'sync/private-main' && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: node scripts/validate-public-content.mjs --base "$BASE_SHA" --allow-article-set-changes
+
+      - name: 公開同期ブランチを検証
+        if: github.event_name == 'push' && github.ref_name == 'sync/private-main'
+        run: |
+          git fetch --no-tags origin main
+          node scripts/validate-public-content.mjs --base origin/main --allow-article-set-changes
+
+      - name: mainの全記事を検証
+        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref_name == 'main')
+        run: node scripts/validate-public-content.mjs
+
+      - name: Zenn CLIで記事を検証
+        run: npx zenn list:articles

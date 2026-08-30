@@ -1,0 +1,44 @@
+name: Privateからの公開PRを作成
+
+on:
+  push:
+    branches:
+      - sync/private-main
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: open-private-publish-pr
+  cancel-in-progress: true
+
+jobs:
+  open-pr:
+    name: 公開PRを作成または更新
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: 公開PRを確認
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          existing_pr="$(gh pr list \
+            --repo "$GITHUB_REPOSITORY" \
+            --base main \
+            --head sync/private-main \
+            --state open \
+            --json number \
+            --jq '.[0].number // empty')"
+
+          if [ -n "$existing_pr" ]; then
+            echo "公開PR #$existing_pr は作成済みです。"
+            exit 0
+          fi
+
+          gh pr create \
+            --repo "$GITHUB_REPOSITORY" \
+            --base main \
+            --head sync/private-main \
+            --title "Privateの公開記事を同期" \
+            --body "Private執筆リポジトリで\`published: true\`になっている記事を同期します。\n\n自動マージは行いません。差分と公開可否を確認してからマージしてください。"
